@@ -55,4 +55,23 @@ class LotteryLogDao extends BaseDao
 		return $count;
 	}
 
+	public function count_by_dateline($start, $end) {
+		$this->_allowmem = true;
+
+        $mem_key = 'lottery_log::count_by_dateline_'.$start.'_'.$end;
+        if($this->_allowmem) {
+            $data = $this->_memory->cmd('get', $mem_key);
+            if($data!==false){
+                return $data;
+            }
+        }
+        
+        $result = $this->_db->result_first("SELECT COUNT(*) FROM %t WHERE dateline >= %d AND dateline <= %d", array($this->_table, $start, $end));
+        
+        if($this->_allowmem) {
+            $this->_memory->cmd('set', $mem_key , $result, 600);
+        }
+        
+        return $result;		
+	}
 }

@@ -1,6 +1,6 @@
 <?php
 
-class LotteryLogic extends Logic 
+class LotteryLogic extends Logic
 {
 	private $_log_data = array();
 
@@ -11,21 +11,102 @@ class LotteryLogic extends Logic
 		$this->_dao = ObjectCreater::create('LotteryWinDao');
 	}
 
+	//分配奖品
+	public function distribute($activityid, $awardid, $count, $start_time, $end_time, $append=false, $probability=0, $paid_probability=0, $type=1, $award_info=array())
+	{
+		$seconds         = $end_time - $start_time - 1000;
+		$insert_data     = array();
+		$second_gap_real = $seconds / ($count * 10);
+		$second_gap      = intval($second_gap_real);
+		$second_gap      = $second_gap > 0 ? $second_gap : 1;
+
+		if($count<1){
+			return false;
+		}
+
+		//虚拟奖品
+		if($award_info['type']==2 && isset($_FILES['vawards']) && $_FILES['vawards']['tmp_name']){
+			$vawards = file_get_contents($_FILES["vawards"]["tmp_name"]);
+			$vawards = $vawards ? explode(',', trim($vawards, ',')) : $vawards;
+
+			$this->throw_exception(!$vawards || count($vawards)!=$count, array('code'=>400, 'message'=>'上传的虚拟奖品和分配数量不一致！'));
+
+			$this->throw_exception(!$award_info['message'], array('code'=>400, 'message'=>'该奖品未设置发放文案，请设置后再分配！'));
+		}
+
+		$save_count = 0;
+		if($append){
+			$item = ObjectCreater::create('LotteryActivityAwardDao')->get_item_by_activityid_awardid($activityid, $awardid);
+			$save_count = $count + intval($item['count']);
+		}
+		//save
+		$data = array(
+			'awardid'          => $awardid, 
+			'probability'      => $probability,
+			'type'             => $type,
+			'paid_probability' => $paid_probability, 
+			'activityid'       => $activityid, 
+			'count'            => $save_count ? $save_count : $count
+		);
+
+		ObjectCreater::create('LotteryActivityAwardDao')->insert_or_update($data);
+		//删除缓存
+		ObjectCreater::create('LotteryActivityAwardDao')->del_activity_award_cache($activityid, $awardid);
+
+		//queue
+		$time = $start_time;
+		$i = 0;
+		while ($count) {
+			$send_time     = intval($time + rand(0, ($second_gap-1)));
+			$q             = array(
+				'awardid'    => $awardid, 
+				'activityid' => $activityid, 
+				'send_time'  => $send_time,
+				'stuff'      => (isset($vawards[$i]) && $vawards[$i] ? $vawards[$i] : null)
+			);
+			$insert_data[] = $q;
+			$time          = $time + $second_gap_real*10;
+			ObjectCreater::create('LotteryActivityAwardQueueDao')->insert($q);
+			$count--;
+			$i++;
+		}
+
+		//ObjectCreater::create('LotteryActivityAwardQueueDao')->batch_insert($insert_data);
+	}
+
+	//更新队列
+	public function update_queue($id, $data)
+	{
+		if(empty($data)){
+			return false;
+		}
+		
+		$ret = ObjectCreater::create('LotteryActivityAwardQueueDao')->update($id, $data);
+		return $ret;
+	}
 
 	public function get_user_count($id) 
 	{
 		$result = array();
 		$member = ObjectCreater::create('MemberLogic')->get_current_member();
 
-		$lottery =  ObjectCreater::create('LotteryActivityDao')->fetch($id);
-		$data    = $this->init_chance($lottery, $id);
+		$result['lottery']        =  ObjectCreater::create('LotteryActivityDao')->fetch($id);
+		$result['data']           = $this->init_chance($result['lottery'], $id);
 		
-		$chance  = $lottery['max_chance'] && $data['chance'] > $lottery['max_chance'] ? $lottery['max_chance'] : $data['chance'];
+		$result['user_count']     = ObjectCreater::create('CommonMemberCountDao')->fetch($member['uid']);
+		$result['mb']             = $result['user_count']['extcredits3'];
+		$result['mb']             = $result['mb'] > 0 ? $result['mb'] : 0;
 		
-		$chance  = intval($data['chance']) - intval($data['used']);
-		$chance  = $chance > 0 ? $chance : 0;
+		$result['data']['chance'] = $result['lottery']['max_chance'] && $result['data']['chance'] > $result['lottery']['max_chance'] ? $result['lottery']['max_chance'] : $result['data']['chance'];
+		$result['free_chance']    = intval($result['data']['chance']) - intval($result['data']['used']);
+		$result['free_chance']    = $result['free_chance'] > 0 ? $result['free_chance'] : 0;
+		$result['paid_chance']    = $result['data']['paid_chance'] - $result['data']['paid_used'];
+		$result['paid_chance']    = $result['paid_chance'] > 0 ? $result['paid_chance'] : 0;
+		$result['mb_chance']      = $result['lottery']['cost'] ? intval($result['mb'] / $result['lottery']['cost']) : 0;
+		$result['paid_chance']    = $result['paid_chance'] > $result['mb_chance'] && $result['lottery']['cost'] > 0 ? $result['mb_chance'] : $result['paid_chance'];
+		$result['total_chance']   = $result['paid_chance'] + $result['free_chance'];
 
-		return $chance;
+		return $result;
 	}
 
 	public function get_address_by_uid($uid) 
@@ -33,7 +114,7 @@ class LotteryLogic extends Logic
 		if(!$uid){
 			return false;
 		}
-		$data = ObjectCreater::create('ShopUserAddressDao')->fetch($uid);
+		$data   = ObjectCreater::create('ShopUserAddressDao')->get_address($uid);
 		return $data;
 	}
 
@@ -73,43 +154,104 @@ class LotteryLogic extends Logic
 		return $count;
 	}
 
+	public function get_individual_list($uid, $start, $limit) {
+		$list = ObjectCreater::create('LotteryWinDao')->get_list_by_uid($uid, $start, $limit);
+		if (!$list) {
+			return array(
+				'list' => array(),
+				'last_page' => true,
+				);
+		}
+		$count = count($list);
+		if ($count === $limit) {
+			$last_page = false;
+		} else {
+			$last_page = true;
+		}
+
+		$awardids = $activityids = array();
+		foreach ($list as $key => $item) {
+			$awardids[$key] = $item['awardid'];
+			$activityids[$key] = $item['activityid'];			
+		}
+
+		$awards = ObjectCreater::create('LotteryAwardDao')->fetch_all($awardids);
+		$activitys = ObjectCreater::create('LotteryActivityDao')->fetch_all($activityids);
+		foreach ($list as $key => $item) {
+			$list[$key]['stuff'] = $item['stuff'] === null ? '' : $item['stuff']; 
+			$list[$key]['award_name'] = $awards[$item['awardid']]['name'];
+			$list[$key]['award_type'] = $awards[$item['awardid']]['type'];
+			$list[$key]['activity_name'] = $activitys[$item['activityid']]['name'];
+			$list[$key]['userinfo'] = array(
+				'username' => '',
+				'phone' => '',
+				'address' => '',
+				);
+			if (!empty($item['address_info']) && strpos($item['address_info'], '|') !== false) {
+				$infos = explode('|', $item['address_info']);
+				if (is_array($infos) && count($infos) === 3) {
+					$list[$key]['userinfo']['username'] = $infos[0];
+					$list[$key]['userinfo']['phone'] = $infos[1];
+					$list[$key]['userinfo']['address'] = $infos[2];
+				}
+			}
+		}
+		return array(
+			'list' => $list,
+			'last_page' => $last_page,
+			);
+	}
+
 	public function update_address_by_winid($win_id, $name, $phone, $address, $page=1, $_my_limit = 40)
 	{
 		$member = ObjectCreater::create('MemberLogic')->get_current_member();
 		$this->throw_exception(!$member['uid'], array('code'=>401, 'message'=>'请先登录！'));
 		
 		$win_info = ObjectCreater::create('LotteryWinDao')->fetch($win_id);
-		$this->throw_exception($member['uid']!=$win_info['uid'], array('code'=>403, 'message'=>'您无权修改该中奖信息！'));
+		$this->throw_exception(empty($win_info) || !isset($win_info['uid']) || $member['uid'] != $win_info['uid'], array('code'=>403, 'message'=>'您无权修改该中奖信息！'));
 
+		$data = array(
+			'uid'     => $member['uid'],   
+			'name'    => $name,    
+			'phone'   => $phone,  
+			'address' => $address 
+		);
+		ObjectCreater::create('ShopUserAddressDao')->insert_or_update($data);
 		ObjectCreater::create('LotteryWinDao')->update($win_id, array('address_info'=>$name.'|'.$phone.'|'.$address));
 
 		//删除中奖记录列表缓存
 		$memory = Nice::app()->getComponent('Memory');
-		$memkey = 'lottery_win_user_list_'.$member['uid'].'_0';
-		$memory->cmd('rm', $memkey);
+		$start   = $page>1 ? ($page - 1) * $_my_limit : 0;
+		$mem_key = 'lottery_win_user_list_'.$member['uid'].'_'.$start;
+		$memory->cmd('rm',$mem_key);
+
+		return true;
 	}
 
-	public function send_code($win_id, $goods_list)
+	public function check_activity_legal($id = -1) 
 	{
-		$member = ObjectCreater::create('MemberLogic')->get_current_member();
-		$this->throw_exception(!$member['uid'], array('code'=>401, 'message'=>'请先登录！'));
-
-		if($win_id){
-			$win = ObjectCreater::create('LotteryWinDao')->fetch($win_id);
-			$this->throw_exception($member['uid']!=$win['uid'], array('code'=>403, 'message'=>'非法请求'));
-
-			$sync_log = ObjectCreater::create('SyncPhoneLogDao')->fetch($member['uid']);
-			parent::throw_exception($sync_log['dateline']>$win['win_time'], array('code'=>407, 'message'=>'中奖后修改绑定手机不能领取奖品'));
-		}else{
-			ObjectCreater::create('ShopLogic')->check_buying($goods_list);
+		$memory = Nice::app()->getComponent('Memory');
+		$key = __CLASS__.':'.__FUNCTION__.':'.$id;
+		$status = $memory->cmd('get', $key);
+		if ($status !== false) {
+			return true;
 		}
-
-		return ObjectCreater::create('VerifyCodeLogic')->send_code();
+		$status = ObjectCreater::create('LotteryActivityDao')->fetch($id);
+		if (is_array($status) && isset($status['id']) && (int)$status['id'] === (int)$id) {
+			self::throw_exception(!$status['enable'], lang_lottery::ERROR_ENABLE);
+			self::throw_exception(TIMESTAMP < (int)$status['start_time'] , lang_lottery::ERROR_NOT_START);
+			self::throw_exception(TIMESTAMP > (int)$status['end_time'], lang_lottery::ERROR_END);
+			// 保存合法状态
+			$memory->cmd('set', $key, $status, 5 * 60);
+			return true;
+		}
+		return false;
 	}
 
 	public function get_activity_info($id = -1) {
 		return ObjectCreater::create('LotteryActivityDao')->fetch($id);
 	}
+
 	//抽奖
 	public function draw($id, $directly=true)
 	{
@@ -117,6 +259,9 @@ class LotteryLogic extends Logic
 
 		$member = ObjectCreater::create('MemberLogic')->get_current_member();
 		self::throw_exception(!$member['uid'], lang_lottery::ERROR_UNLOGIN);
+
+		$member['phone'] = isset($member['phone']) ? floatval($member['phone']) : 0;
+		self::throw_exception(!$member['phone'], lang_lottery::ERROR_NO_PHONE);
 
 		$lottery = ObjectCreater::create('LotteryActivityDao')->fetch($id);
 		//判断是否存在
@@ -132,6 +277,9 @@ class LotteryLogic extends Logic
 		//判断是否在期间内
 		self::throw_exception(TIMESTAMP < $lottery['start_time'] , lang_lottery::ERROR_NOT_START);
 		self::throw_exception(TIMESTAMP > $lottery['end_time'], lang_lottery::ERROR_END);
+
+		//定制判断
+		$this->custom_check($id, $member['uid']);
 
 		//访问量过滤
 		$mem = Nice::app()->getComponent('Memory');
@@ -149,6 +297,8 @@ class LotteryLogic extends Logic
 		$this->_log_data['activityid'] = $id;
 		$this->_log_data['extra_log']  = '';
 
+		//加抽奖数
+		$this->increase_count($id);
 		//检查有没有抽奖机会
 		$this->check_chance($lottery, $id);
 
@@ -188,7 +338,7 @@ class LotteryLogic extends Logic
 
 		$award_info = ObjectCreater::create('LotteryAwardDao')->fetch($awardid);
 		//直接发奖品
-		//$this->send_award($lottery, $award_info, $win_id, $queue);
+		$this->send_award($lottery, $award_info, $win_id, $queue);
 		//删除中奖列表的缓存
 		$this->_dao->delete_win_cache($member['uid'], $id);
 		//更新获得奖品数的缓存 
@@ -223,34 +373,32 @@ class LotteryLogic extends Logic
 
 	private function send_award($lottery, $award_info, $win_id, $queue)
 	{
-		// $member = ObjectCreater::create('MemberLogic')->get_current_member();
+		$member = ObjectCreater::create('MemberLogic')->get_current_member();
 
-		// if($award_info['type']==1){
-		// 	ObjectCreater::create('LotteryChanceDao')->begin();
+		if($award_info['type']==1){
+			ObjectCreater::create('LotteryChanceDao')->begin();
 
-		// 	$message = '恭喜您在抽奖活动「'.$lottery['name'].'」中获得煤球奖励，煤球已发放到您论坛账号上，请查收。';
-		// 	try {
-		// 		$res     = $this->_send_mb($member['uid'], $award_info['val'], 'LOT');
-		// 		$res2    = true;//send_message($member['uid'], $message);
-		// 	} catch (Exception $e) {
-		// 		$res2 = false;
-		// 	}
+			$message = '恭喜您在抽奖活动「'.$lottery['name'].'」中获得煤球奖励，煤球已发放到您论坛账号上，请查收。';
+			try {
+				$res     = $this->_send_mb($member['uid'], $award_info['val'], 'LOT');
+				$res2    = true;//send_message($member['uid'], $message);
+			} catch (Exception $e) {
+				$res2 = false;
+			}
 
-		// 	$this->_dao->set_sended(array($win_id), TIMESTAMP);	
+			$this->_dao->set_sended(array($win_id), TIMESTAMP);	
 
-		// 	if($res && $res2){
-		// 		ObjectCreater::create('LotteryChanceDao')->commit();
-		// 	}else{
-		// 		ObjectCreater::create('LotteryChanceDao')->rollback();
-		// 	}
-		// }else if($award_info['type']==2){   //虚拟奖品
-		// 	if(isset($queue['stuff']) && $queue['stuff'] && $award_info['message']){
-		// 		$message = strpos($award_info['message'], '{code}')!==false ? str_replace('{code}', $queue['stuff'], $award_info['message']) : $award_info['message'].$queue['stuff'];
-		// 		ObjectCreater::create('AnnouncepmLogic')->send($member['uid'], $message);
-		// 	}
-		// }else if($award_info['type']==3){   //实物奖品 同步绑定的手机号码
-		// 	ObjectCreater::create('MemberLogic')->sync_phone();
-		// }
+			if($res && $res2){
+				ObjectCreater::create('LotteryChanceDao')->commit();
+			}else{
+				ObjectCreater::create('LotteryChanceDao')->rollback();
+			}
+		}else if($award_info['type']==2){   //虚拟奖品
+			if(isset($queue['stuff']) && $queue['stuff'] && $award_info['message']){
+				$message = strpos($award_info['message'], '{code}')!==false ? str_replace('{code}', $queue['stuff'], $award_info['message']) : $award_info['message'].$queue['stuff'];
+				ObjectCreater::create('AnnouncepmLogic')->send($member['uid'], $message);
+			}
+		}
 	}
 
 
@@ -294,10 +442,12 @@ class LotteryLogic extends Logic
 	//判断有没有抽奖机会
 	private function check_chance($lottery, $activityid) 
 	{
+		$lottery['cost']            = intval($lottery['cost']);
 		$lottery['max_chance']      = intval($lottery['max_chance']);
+		$lottery['max_paid_chance'] = intval($lottery['max_paid_chance']);
 
-		if(!$lottery['max_chance']){
-			//无限制直接返回
+		if(!$lottery['max_chance'] && !$lottery['max_paid_chance']){
+			//免费和收费均无限制的时候 直接返回
 			return true;
 		}
 		
@@ -306,17 +456,65 @@ class LotteryLogic extends Logic
 
 		$this->_log_data['chance']      = $chance['chance'];
 		$this->_log_data['used']        = $chance['used'];
-
+		$this->_log_data['paid_chance'] = $chance['paid_chance'];
+		$this->_log_data['paid_used']   = $chance['paid_used'];
 
 		$chance['chance'] = $lottery['max_chance'] && $chance['chance'] > $lottery['max_chance'] ? $lottery['max_chance'] : $chance['chance'];
+		$message = ($lottery['allow_incr'] && $chance['chance'] < $lottery['max_chance']) ? '当前抽奖机会已用完，您可以通过分享活动增加抽奖机会！' : '您的抽奖机会已用完！';
 
-		self::throw_exception($chance['chance']<=$chance['used'], lang_lottery::ERROR_NO_CHANCE);
+		self::throw_exception(!$lottery['cost'] && $chance['chance']<=$chance['used'], lang_lottery::ERROR_NO_CHANCE);
 
 		$member = ObjectCreater::create('MemberLogic')->get_current_member();
-		//减抽奖次数
-		ObjectCreater::create('LotteryChanceDao')->increase($activityid, $member['uid'], $field='used');
+
+		if($lottery['cost'] && $chance['chance']<=$chance['used']){//免费机会用完时
+			self::throw_exception($lottery['max_paid_chance'] && $chance['paid_chance']<=$chance['paid_used'], lang_lottery::ERROR_NO_CHANCE);
+			
+			//扣煤球
+			$user_count = ObjectCreater::create('CommonMemberCountDao')->fetch($member['uid']);
+			if($user_count['extcredits3']>$lottery['cost']){
+				//一定要以数据库为准 即使前一次是从数据库取的  数据库也有缓存了不需要太担心查询性能
+				$user_count = ObjectCreater::create('CommonMemberCountDao')->fetch($member['uid'], $force_from_db=true);
+			}
+
+			self::throw_exception($user_count['extcredits3']<$lottery['cost'], lang_lottery::ERROR_CANNOT_PAY);
+			$pay = $lottery['cost'] * -1;
+
+			ObjectCreater::create('LotteryChanceDao')->begin();
+			$res  = $this->_send_mb($member['uid'], $pay, 'LTM');
+			$res2 = ObjectCreater::create('LotteryChanceDao')->increase($activityid, $member['uid'], $field='paid_used');
+
+			if($res && $res2){
+				ObjectCreater::create('LotteryChanceDao')->commit();
+			}else{
+				ObjectCreater::create('LotteryChanceDao')->rollback();
+			}
+
+			$this->_log_data['pay'] = $lottery['cost'];
+
+			//删除煤球量cache
+			ObjectCreater::create('AfterMemberDao')->del_users_count_cache(array($member['uid']));
+
+		}else{
+			//使用免费机会
+			ObjectCreater::create('LotteryChanceDao')->increase($activityid, $member['uid'], $field='used');
+		}
 	}
 
+	private function _send_mb($uid, $mb, $op, $id=0) 
+	{
+		$res = ObjectCreater::create('AfterMemberDao')->add_extcredits_3($uid, $mb);
+		if($res){
+			$credit_log = array(
+				'uid'         => $uid,
+				'operation'   => $op,
+				'relatedid'   => $id,
+				'extcredits3' => $mb,
+				'dateline'    => TIMESTAMP,
+			);
+			return ObjectCreater::create('CreditLogDao')->insert_log($credit_log);
+		}
+		return false;
+	}
 
 	//从队列中抽奖
 	private function draw_queue_award($id, $lottery, $awards, $throw_err=true) 
@@ -336,8 +534,9 @@ class LotteryLogic extends Logic
 					continue;
 				}
 				//概率 
-				$probability  = $probabilitys['probability'];
+				$probability  = (isset($this->_log_data['pay']) && $this->_log_data['pay']) ? $probabilitys['paid_probability'] : $probabilitys['probability'];
 				$probability  = $probability<1 ? 1 : $probability;
+				$probability  = $member['groupid']==8 ? ($probability * 1000) : $probability;
 				$random       = rand(1, $probability);
 
 				$this->_log_data['extra_log'] .= 'prb:'.$probability.'rd:'.$random;
@@ -352,6 +551,9 @@ class LotteryLogic extends Logic
 
 				if($random===1 || $probability<=1){
 					$queue = $q;
+					break;
+				}
+				if($probability<21){
 					break;
 				}
 			}
@@ -375,38 +577,6 @@ class LotteryLogic extends Logic
 		return $ret ? $queue : array();		
 	}
 
-	private function save_win($id, $queue, $has_noq, &$awardid) 
-	{
-		$member = ObjectCreater::create('MemberLogic')->get_current_member();
-		$this->throw_exception(!$member['uid'], array('code'=>401, 'message'=>'请先登录！'));
-
-		//保存获奖信息 保存不成功也返回不中奖
-		$win_data = array(
-			'uid'        => $member['uid'],
-			'qid'        => $queue['id'],
-			'ip'		 => $member['clientip'],
-			'username'   => $member['username'],
-			'awardid'    => $queue['awardid'], 
-			'activityid' => $id,
-			'stuff'      => isset($queue['stuff']) ? $queue['stuff'] : '',
-			'win_time'   => TIMESTAMP
-		);
-		
-		try {
-			$win_id  = $this->_dao->insert($win_data, $return_insert_id=true);
-			$awardid = $queue['awardid'];			
-		} catch (Exception $e) {
-			$win_id = false;
-		}
-
-		if(!$win_id){ //恢复
-			ObjectCreater::create('LotteryActivityAwardQueueDao')->update($queue['id'], array('flag'=>0));
-			self::throw_exception(!$has_noq, lang_lottery::ERROR_CANNOT_SAVE);
-		}
-
-		return $win_id;
-	}
-
 
 	//从非队列奖品中抽奖
 	private function draw_noqueue_award($id, $lottery, $awards, &$awardid) 
@@ -420,8 +590,12 @@ class LotteryLogic extends Logic
 			if($award['left']<1 || $award['type']!=2){
 				continue;
 			}
-			$probability  = $award['probability'];
+			$probability  = (isset($this->_log_data['pay']) && $this->_log_data['pay']) ? $award['paid_probability'] : $award['probability'];
 			$probability  = $probability<1 ? 1 : $probability;
+			
+			if($member['groupid']==8){
+				$probability = $probability * 1000;
+			}
 
 			$random = rand(1, $probability);
 			$this->_log_data['extra_log'] .= ' noq,prb:'.$probability.'rd:'.$random;
@@ -481,12 +655,127 @@ class LotteryLogic extends Logic
 			'activityid' => $id, 
 			'win_time'   => TIMESTAMP
 		);
-		
+
 		return $this->_dao->insert($win_data, $return_insert_id=true);
 	}
 
 
-	//初始化抽奖次数
+	private function save_win($id, $queue, $has_noq, &$awardid) 
+	{
+		$member = ObjectCreater::create('MemberLogic')->get_current_member();
+		$this->throw_exception(!$member['uid'], array('code'=>401, 'message'=>'请先登录！'));
+
+		//保存获奖信息 保存不成功也返回不中奖
+		$win_data = array(
+			'uid'        => $member['uid'],
+			'qid'        => $queue['id'],
+			'ip'		 => $member['clientip'],
+			'username'   => $member['username'],
+			'awardid'    => $queue['awardid'], 
+			'activityid' => $id,
+			'stuff'      => isset($queue['stuff']) ? $queue['stuff'] : '',
+			'win_time'   => TIMESTAMP
+		);
+		
+		try {
+			$win_id  = $this->_dao->insert($win_data, $return_insert_id=true);
+			$awardid = $queue['awardid'];			
+		} catch (Exception $e) {
+			$win_id = false;
+		}
+
+		if(!$win_id){ //恢复
+			ObjectCreater::create('LotteryActivityAwardQueueDao')->update($queue['id'], array('flag'=>0));
+			self::throw_exception(!$has_noq, lang_lottery::ERROR_CANNOT_SAVE);
+		}
+
+		return $win_id;
+	}
+
+
+
+	private function increase_count($activityid) 
+	{
+		$memory = Nice::app()->getComponent('Memory');
+
+		$count_key = 'lottery_count_' . $activityid;
+		$cache_ttl = 86400; //1天
+		$count_get = $memory->cmd('get', $count_key);
+
+        if($count_get){  //缓存里有
+            $count = $memory->cmd('inc', $count_key); 
+            if($count < $count_get){
+                //incr时过期
+                $count = $count_get + 1;
+                $memory->cmd('set', $count_key, $count, $cache_ttl);                 
+            }
+        }else{
+            //redis挂掉或者缓存过期
+			$count_db = ObjectCreater::create('CommonCacheDao')->fetch($count_key, $force_from_db = true);
+			$count    = intval($count_db['cachevalue']) + 1;
+            $memory->cmd('set', $count_key, $count, $cache_ttl); 
+        }
+
+	    //更新数据库中的排名
+	    if($count%10===0){
+		    ObjectCreater::create('CommonCacheDao')->insert(array(
+		        'cachekey'   => $count_key,
+		        'cachevalue' => $count,
+		        'dateline'   => TIMESTAMP,
+		    ), false, true);
+	    }  		
+	}
+
+	private function get_extra_chance($lottery, $chance_data, $activityid) 
+	{
+		$member = ObjectCreater::create('MemberLogic')->get_current_member();
+		$this->throw_exception(!$member['uid'], array('code'=>401, 'message'=>'请先登录！'));
+	    
+		$extra_chance = 0;
+		$start_time   = strtotime(date('Y-m-d 00:00:00')); 
+
+		if(isset($chance_data['refresh_time']) && $chance_data['refresh_time']>=$start_time && $chance_data['extra_chance']>1){
+			return $extra_chance;
+		}
+
+		$extra_setting = isset($lottery['extra_chance']) && $lottery['extra_chance'] ? json_decode($lottery['extra_chance'], true) : array();
+		if(isset($extra_setting['signed']) && $extra_setting['signed']){
+			$user_sign = ObjectCreater::create('PluginDsuamupperDao')->fetch($member['uid']);
+			if(isset($chance_data['refresh_time']) && $user_sign['lasttime']>$chance_data['refresh_time'] && $user_sign['lasttime']>=$start_time){
+				$extra_chance += 1;
+			}
+		}
+
+		if(isset($extra_setting['posted']) && $extra_setting['posted'] && ($chance_data['extra_chance']+$extra_chance)<2 ){
+			$user_status = ObjectCreater::create('CommonMemberStatusDao')->fetch($member['uid']);
+			$user_sign   = isset($user_sign) ? $user_sign : ObjectCreater::create('PluginDsuamupperDao')->fetch($member['uid']);
+
+			if(isset($chance_data['extra_chance']) && $chance_data['extra_chance']>0){
+				//有加过 确认是签到加的 才能给发帖加
+				if(isset($chance_data['refresh_time']) && $user_status['lastpost']>=$start_time && $user_sign['lasttime']>=$start_time && $user_sign['lasttime']<=$chance_data['refresh_time']){
+					$extra_chance += 1;
+				}
+			}else{
+				if($user_status['lastpost']>=$start_time){
+					$extra_chance += 1;
+				}
+			}
+		}
+
+		if($extra_chance){
+			$data = array(
+				'refresh_time' =>TIMESTAMP,
+				'uid'          => $member['uid'],
+				'activityid'   => $activityid,
+				'extra_chance' =>($chance_data['extra_chance']+$extra_chance)
+			);
+			
+			ObjectCreater::create('LotteryChanceDao')->update_db_cache($chance_data['id'], $data);
+		}
+
+		return $extra_chance;
+	}
+
 	public function init_chance($lottery, $activityid) 
 	{
 		$member = ObjectCreater::create('MemberLogic')->get_current_member();
@@ -496,13 +785,17 @@ class LotteryLogic extends Logic
 
 		if(empty($chance)){ //初始化
 			$init_chance = $lottery['init_chance'] ? intval($lottery['init_chance']) : 0;
+			$paid_chance = $lottery['max_paid_chance'] ? intval($lottery['max_paid_chance']) : 0;
 
-			$id = ObjectCreater::create('LotteryChanceDao')->insert_or_update_chance($member['uid'], $activityid, $init_chance, TIMESTAMP);
+			$id = ObjectCreater::create('LotteryChanceDao')->insert_or_update_chance($member['uid'], $activityid, $init_chance, $paid_chance, TIMESTAMP);
 
 			$chance = array(
 				'id'           => $id,
 				'chance'       => $init_chance, 
+				'paid_chance'  => $paid_chance, 
 				'used'         => 0, 
+				'paid_used'    => 0, 
+				'extra_chance' => 0,
 				'dateline'     => TIMESTAMP
 			);
 		}else{
@@ -540,9 +833,9 @@ class LotteryLogic extends Logic
 
 	}
 
-	public function increase_chance($lottery_id, $lottery=null, $value=1) 
+	public function increase_chance($lottery_id, $lottery=null, $value=1,$member=array()) 
 	{
-		$member = ObjectCreater::create('MemberLogic')->get_current_member();
+		empty($member) && $member = ObjectCreater::create('MemberLogic')->get_current_member();
 		$this->throw_exception(!$member['uid'], array('code'=>401, 'message'=>'请先登录！'));
 
 		$lottery = !empty($lottery) ? $lottery : ObjectCreater::create('LotteryActivityDao')->fetch($lottery_id);
@@ -712,6 +1005,9 @@ class LotteryLogic extends Logic
 		ObjectCreater::create('LotteryWinDao')->update($win_id, array('address_info'=>$name.'|'.$phone.'|'.$address));
 	}
 
+	public function get_activity_range() {
+		return ObjectCreater::create('LotteryActivityDao')->range();
+	}
 
 	public function save_log($data) {
 

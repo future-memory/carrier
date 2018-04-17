@@ -29,16 +29,16 @@ class HelperPager
 		for($i=self::$bothnum;$i>0;$i--){
 			$page = self::$page-$i;
 			if ($page > 0){
-				$pagelist .= '<a href="'.self::url($page).'"><em>'.$page.'</em></a>';
+				$pagelist .= '<li><a href="'.self::url($page).'">'.$page.'</a></li>';
 			}
 		}
 		//当前页
-		$pagelist .= '<a class="active"><strong>'.self::$page.'</strong></a>';
+		$pagelist .= '<li class="active"><a>'.self::$page.'</a></li>';
 
 		for($i=1;$i<=self::$bothnum;$i++) {
 			$page = self::$page + $i;
 			if ($page <= self::$pagenum){
-				$pagelist .= ' <a href="'.self::url($page).'"><em>'.$page.'</em></a> ';
+				$pagelist .= '<li><a href="'.self::url($page).'">'.$page.'</a></li>';
 			}
 		}
 
@@ -49,7 +49,7 @@ class HelperPager
 	private static function first() 
 	{
 		if (self::$page > self::$bothnum+1) {
-				return ' <a href="'.self::url(1).'"><em>1...</em></a>';
+				return '<li><a href="'.self::url(1).'">1...</a></li>';
 		}
 	}
 	
@@ -57,25 +57,25 @@ class HelperPager
 	private static function prev() 
 	{
 		if (self::$page == 1) {
-				return '<a href="#" class="prev"><em class="prev-icon base-pager-left"></em></a>';
+				return '<li class="disabled"><span><span aria-hidden="true">&laquo;</span></span></li>';
 		}
-		return '<a href="'.self::url(self::$page-1).'" class="prev"><em class="prev-icon base-pager-left"></em></a>';
+		return '<li class="disabled"><a href="'.self::url(self::$page-1).'" aria-label="Previous"><span aria-hidden="true">&laquo;</span></a></li>';
 	}
 	
 	//下一页
 	private static function next() 
 	{
 		if (self::$page >= self::$pagenum) {
-				return '<span class="disabled">下一页</span>';
+				return '<li class="disabled"><span><span aria-hidden="true">&raquo;</span></span></li>';
 		}
-		return '<a href="'.self::url(self::$page+1).'" class="next"><em class="next-icon base-pager-right"></em></a>';
+		return '<li class="disabled"><a href="'.self::url(self::$page+1).'" aria-label="Next"><span aria-hidden="true">&raquo;</span></a></li>';
 	}
 	
 	//尾页
 	private static function last() 
 	{
 		if (self::$pagenum - self::$page > self::$bothnum) {
-				return '...<a href="'.self::url(self::$pagenum).'"><em>...'.self::$pagenum.'</em></a>';
+				return '<li><a href="'.self::url(self::$pagenum).'">...'.self::$pagenum.'</a></li>';
 		}
 	}
 
@@ -83,16 +83,6 @@ class HelperPager
 	private static function url($page)
 	{
 		$url = self::$url.'&page='.$page;
-		
-		//静态化url
-		if(self::$static){
-			$regs = array(
-				'search'  => array('/index.php\\?mod=forum&fid=(\\d+)&page=(\\d+)/'),
-				'replace' => array('forum-\\1-\\2.html')
-			);
-			$url = preg_replace($regs['search'], $regs['replace'], $url);
-		}
-
 		return $url;
 	}
 	
@@ -101,13 +91,17 @@ class HelperPager
 	{
 		self::init($total, $pagesize, $cur_page, $url, $static);
 
-		$page  = '<div class="bbs-page">';
+		if(self::$pagenum<2){
+			return '';
+		}
+
+		$page  = '<div class ="row"><nav aria-label="Page navigation navbar-right"><ul class="pagination">';
 		$page .= self::prev();
 		$page .= self::first();
 		$page .= self::pageList();
 		$page .= self::last();
 		$page .= self::next();
-		$page .= '</div>';
+		$page .= '</ul></nav></div>';
 
 		return $page;
 	}

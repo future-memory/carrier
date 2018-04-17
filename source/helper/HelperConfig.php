@@ -14,7 +14,7 @@ class HelperConfig
 		self::$loaded_config[$key] = array();
 
 		//私有config
-		$config_path = APP_ROOT.'/config';
+		$config_path = APP_ROOT.'/config';;
 		$config_file = $config_path.DIRECTORY_SEPARATOR.$key.'.php';
 		if(is_file($config_file)){
 			$tmp = include($config_file);
@@ -24,7 +24,7 @@ class HelperConfig
 		//共用config  存在相同key时 不覆盖私有
 		$config_path = BASE_ROOT.'/config';
 		$config_file = $config_path.DIRECTORY_SEPARATOR.$key.'.php';
-		if(APP_ROOT!=BASE_ROOT && is_file($config_file)){
+		if(is_file($config_file)){
 			$tmp = include($config_file);
 			self::$loaded_config[$key] = array_merge((array)$tmp, self::$loaded_config[$key]);
 		}

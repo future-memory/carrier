@@ -1,5 +1,6 @@
 <?php
-class LotteryAwardDao extends BaseDao {
+class LotteryAwardDao extends BaseDao 
+{
     public function __construct() 
     {
 

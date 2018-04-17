@@ -20,7 +20,7 @@ class HelperLog {
 		$logdir    = BASE_ROOT.'/data/log/';
 		$logfile   = $logdir.$yearmonth.'_'.$file.'.php';
 
-		if(file_exists($logfile) && @filesize($logfile) > 2048000) {
+		if(@filesize($logfile) > 2048000) {
 			$dir    = opendir($logdir);
 			$length = strlen($file);
 			$maxid  = $id = 0;

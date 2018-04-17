@@ -1,56 +1,35 @@
 <?php
-
 class ShopGoodsDao extends BaseDao
 {
 	public function __construct() 
 	{
-		$this->_table         = 'shop_goods';
-		$this->_pk            = 'id';
+		$this->_table = 'shop_goods';
+		$this->_pk    = 'id';
 
 		parent::__construct();
+		$this->_cache_ttl = 600;
 	}
 
-	public function get_list($type=0, $price_start=0, $price_end=0, $start=0, $limit=15)
+	public function get_goods_list($domain, $start=0, $limit=15)
 	{
-		if($this->_allowmem){
-			$mem_key = 'shop_goods_list_'.$type.'_'.$price_start.'_'.$price_end.'_'.$start.'_'.$limit;
-			$mem_key = defined('API_ROOT') ? $mem_key : $mem_key.'_0';
+		$bool  = $domain && $domain!='www';
+		$where = $bool ? 'WHERE domain=%s' : '';
+		$param = $bool ? array($this->_table, $domain, $start, $limit) : array($this->_table, $start, $limit);
+		$data  = $this->_db->fetch_all('SELECT * FROM %t '.$where.' ORDER BY id DESC LIMIT %d, %d', $param);
 
-			$data = $this->_memory->cmd('get',$mem_key);	
-			if($data!==false){		
-				return $data;
-			}
-		}
-
-		$condition = $this->get_condition($type, $price_start, $price_end);
-		$data      = $this->_db->fetch_all('SELECT * FROM %t '.$condition.' ORDER BY sort_order DESC, id DESC LIMIT %d, %d', array($this->_table, $start, $limit));
-		if($this->_allowmem){
-			$this->_memory->cmd('set', $mem_key, $data, 120);
-		}
         return $data;		
 	}
 
-	public function get_count($type=0, $price_start=0, $price_end=0)
+	public function get_goods_count($domain)
 	{
-		if($this->_allowmem){
-			$mem_key = 'shop_goods_count_'.$type.'_'.$price_start.'_'.$price_end;
-			$mem_key = defined('API_ROOT') ? $mem_key : $mem_key.'_0';
-
-			$data = $this->_memory->cmd('get',$mem_key);	
-			if($data!==false){		
-				return $data;
-			}
-		}
-
-		$condition = $this->get_condition($type, $price_start, $price_end);
-		$data      = $this->_db->fetch_first('SELECT count(*) as cnt FROM %t '.$condition, array($this->_table));
-		
-		if($this->_allowmem){
-			$this->_memory->cmd('set', $mem_key, $data['cnt'], 120);
-		}
+		$bool  = $domain && $domain!='www';
+		$where = $bool ? 'WHERE domain=%s' : '';
+		$param = $bool ? array($this->_table, $domain) : array($this->_table);	
+		$data  = $this->_db->fetch_first('SELECT count(*) as cnt FROM %t '.$where, $param);
 
         return $data['cnt'];		
 	}
+
 
 	public function increase_goods_count($goods_id, $count)
 	{
@@ -59,13 +38,12 @@ class ShopGoodsDao extends BaseDao
 		return $count>0 ? $this->_db->query($sql, array($this->_table, $count, $goods_id)) : $this->_db->query($sql, array($this->_table, abs($count), $count, $goods_id));
 	}
 
-	private function get_condition($type, $price_start, $price_end, $online=1)
+	private function get_condition($type, $price_start, $price_end, $belong=null, $online=1)
 	{
-		$type        = intval($type);
+		$type = intval($type);
 		$price_start = intval($price_start);
-		$price_end   = intval($price_end);
-		$conditions  = array();
-
+		$price_end = intval($price_end);
+		$conditions = array();
 
 		if($online){
 			$conditions[] = '`is_online`=1';

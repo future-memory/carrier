@@ -14,7 +14,7 @@ class HelperCookie
 		return isset($_COOKIE[$key]) ? htmlspecialchars($_COOKIE[$key]) : '';
 	}
 
-	public static function set($key, $value='', $expire=0, $httponly=false)
+	public static function set($key, $value='', $expire=0, $httponly=false,$without_pre=false)
 	{
 		//清空
 		if($value == '' || $expire < 0) {
@@ -28,8 +28,10 @@ class HelperCookie
 		$path   = isset($config['path']) ? $config['path'] : '/';
 		$domain = isset($config['domain']) ? $config['domain'] : '';
 		$secure = $_SERVER['SERVER_PORT'] == 443 ? 1 : 0;
-		$pre    = self::get_cookie_pre();
-		$key    = $pre.$key;
+		if(!$without_pre){
+			$pre    = self::get_cookie_pre();
+			$key    = $pre.$key;
+		}
 
 		@setcookie($key, $value, $expire, $path, $domain, $secure, $httponly);
 	}

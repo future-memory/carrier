@@ -35,10 +35,9 @@ class LotteryActivityAwardDao extends BaseDao {
         return $data;
     }
 
-    public function get_awards_by_activityid_type_admin($activityid, $queue=false)
+    public function get_awards_by_activityid_type_admin($activityid)
     {
-        $status_sql = $queue ? 'AND `type`!=2' : 'AND `type`=2';
-        $data       = $this->_db->fetch_all('SELECT * FROM %t WHERE activityid=%d '.$status_sql, array($this->_table, $activityid));
+        $data = $this->_db->fetch_all('SELECT * FROM %t WHERE activityid=%d ', array($this->_table, $activityid));
         return $data;
     }
 
@@ -79,7 +78,7 @@ class LotteryActivityAwardDao extends BaseDao {
         $key = 'lottery_award_probability_'.$activityid.'_'.$awardid;            
         $this->_memory->cmd('rm', $key);
 
-        return $this->_db->query('UPDATE %t SET `status`=0 WHERE activityid=%d and awardid=%d ', array($this->_table, $activityid, $awardid));
+        return $this->_db->query('UPDATE %t SET `status`=0 WHERE activityid=%d and awardid=%d', array($this->_table, $activityid, $awardid));
     }
 
     public function set_activity_award_default($activityid, $awardid, $val)
@@ -122,5 +121,16 @@ class LotteryActivityAwardDao extends BaseDao {
         $this->_memory->cmd('rm', $key);
 
         return $this->_db->query("INSERT INTO %t (activityid, awardid, probability, paid_probability, `type`, `minute_rate`, `count`, `left`) values (%d, %d, %d, %d, %d, %d, %d, %d) ON DUPLICATE KEY UPDATE probability=%d, paid_probability=%d, type=%d, minute_rate=%d, `count`=`count`+%d, `left`=`left`+%d", array($this->_table, $activityid, $awardid, $probability, $paid_probability, $type, $minute_rate, $count, $left, $probability, $paid_probability, $type, $minute_rate, $count, $left));        
-    }	
+    }
+
+    //删除分配的奖品缓存
+    public function del_activity_award_cache($activityid, $awardid)
+    {
+        $key = 'lottery_award_probability_'.$activityid.'_'.$awardid;            
+        $this->_memory->cmd('rm', $key);
+        $key = 'award_list_'.$activityid;  
+        $this->_memory->cmd('rm', $key);        
+    }
+
+
 }

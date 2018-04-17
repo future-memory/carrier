@@ -7,7 +7,6 @@ class LotteryWinDao extends BaseDao {
 		$this->_table         = 'lottery_win';
 		$this->_pk            = 'id';
 		$this->_pre_cache_key = 'lottery_win_';
-		$this->_allowmem      = false;
 
         parent::__construct();
     }
@@ -23,12 +22,12 @@ class LotteryWinDao extends BaseDao {
 			}
     	}
 
-    	$data = $this->_db->fetch_first('SELECT count(*) as cnt FROM %t WHERE uid=%d AND activityid=%d ', array($this->_table, $uid, $activityid));
+    	$data = $this->_db->fetch_first('SELECT SUM(cnt) AS total FROM (SELECT count(*) as cnt FROM %t WHERE uid=%d AND activityid=%d UNION ALL SELECT count(*) as cnt FROM %t WHERE uid=%d AND activityid=%d) unc', array($this->_table, $uid, $activityid, $this->_noq_table, $uid, $activityid));
     	if($this->_allowmem && !empty($data)){
-			$this->_memory->cmd('set', $key, intval($data['cnt']), $cache_ttl);
+			$this->_memory->cmd('set', $key, intval($data['total']), $cache_ttl);
     	}
 
-        return $data['cnt'];
+        return $data['total'];
     }
 
     public function get_today_count_by_uid_activityid($uid, $activityid)
@@ -43,12 +42,12 @@ class LotteryWinDao extends BaseDao {
 
         $start_time = strtotime(date('Y-m-d 00:00:00'));
 
-        $data = $this->_db->fetch_first('SELECT count(*) as cnt FROM %t WHERE uid=%d AND activityid=%d AND win_time>=%d ', array($this->_table, $uid, $activityid, $start_time));
+        $data = $this->_db->fetch_first('SELECT SUM(cnt) AS total FROM (SELECT count(*) as cnt FROM %t WHERE uid=%d AND activityid=%d AND win_time>=%d UNION ALL SELECT count(*) as cnt FROM %t WHERE uid=%d AND activityid=%d AND win_time>=%d) unc', array($this->_table, $uid, $activityid, $start_time, $this->_noq_table, $uid, $activityid, $start_time));
         if(!empty($data)){
-            ObjectCreater::create('LotteryChanceDao')->set_cache($activityid, $uid, $field, intval($data['cnt']));
+            ObjectCreater::create('LotteryChanceDao')->set_cache($activityid, $uid, $field, intval($data['total']));
         }
 
-        return $data['cnt'];        
+        return $data['total'];        
     }
 
     public function incr_user_win_count_cache($uid, $activityid)
@@ -154,7 +153,9 @@ class LotteryWinDao extends BaseDao {
                 return $data;
             }
         }        
+
         $data = $this->_db->fetch_all('SELECT `id` ,`uid` ,`username`,`ip` ,`awardid`,`activityid` ,`win_time`,`sended` ,`send_time` ,`address_info`, `qid` FROM %t WHERE uid=%d AND activityid=%d ORDER BY `win_time` DESC', array($this->_table, $uid, $activityid, $this->_noq_table, $uid, $activityid));
+
         if($this->_allowmem && !empty($data)){
             $this->_memory->cmd('set', $key, $data, $cache_ttl);
         }
@@ -173,7 +174,7 @@ class LotteryWinDao extends BaseDao {
             }
         }
 
-        $data = $this->_db->fetch_all('SELECT * FROM((SELECT id,awardid,win_time,activityid,address_info FROM %t  WHERE uid=%d) UNION ALL (SELECT id,awardid,win_time,activityid,address_info FROM %t  WHERE uid=%d )) unl ORDER BY win_time DESC LIMIT %d, %d', array($this->_table, $uid, $this->_noq_table, $uid, $start, $limit));
+        $data = $this->_db->fetch_all('SELECT id,awardid,win_time,activityid,address_info,stuff FROM %t WHERE uid=%d ORDER BY win_time DESC LIMIT %d, %d', array($this->_table, $uid, $start, $limit));
 
         if($this->_allowmem){
             $this->_memory->cmd('set', $mem_key, $data, $cache_ttl);

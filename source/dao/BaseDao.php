@@ -1,5 +1,9 @@
 <?php
-
+/**
+ * 
+ * @property DataBase $_db
+ * @property Memory $_memory
+ */
 abstract class BaseDao
 {
     protected $_db;

@@ -97,32 +97,7 @@ class HelperBiz
 		return $return;
 	}
 
-	public static function is_white_host($host) 
-	{
-		static $hosts = array();
-		if(isset($hosts[$host])) {
-			return $hosts[$host];
-		}
-		
-		$hostlen      = strlen($host);
-		$hosts[$host] = false;
-		$white_hosts  = ObjectCreater::create('CacheLogic')->load_syscache('domainwhitelist');
 
-		if(is_array($white_hosts)) foreach($white_hosts as $val) {
-			$domainlen = strlen($val);
-			if($domainlen > $hostlen) {
-				continue;
-			}
-			if(substr($host, -$domainlen) == $val) {
-				$hosts[$host] = true;
-				break;
-			}
-		}
-		if($hosts[$host] == false) {
-			$hosts[$host] = $host == $_SERVER['HTTP_HOST'];
-		}
-		return $hosts[$host];
-	}
 	/**
 	 * 检查跳转域名白名单
 	 * @param string $url
@@ -131,9 +106,6 @@ class HelperBiz
 	public static function check_redirect_url($url){
 		$info   = parse_url($url);
 		if(!empty($info['host'])){
-			if(self::is_white_host($info['host'])){
-				return true;
-			}
 			$domain = substr($info['host'], strpos($info['host'], '.'));
 			$rootdm = trim(substr(DOMAIN, strpos(DOMAIN, '.')), '/');
 			if($domain==$rootdm){

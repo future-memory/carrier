@@ -32,13 +32,16 @@ class LotteryChanceDao extends BaseDao {
     }
 
 
-    public function insert_or_update_chance($uid, $activityid, $init_chance, $dateline, $id=0)
+    public function insert_or_update_chance($uid, $activityid, $init_chance, $paid_chance, $dateline, $id=0)
     {
         $data = array(
             'uid'           => $uid, 
             'activityid'    => $activityid, 
             'chance'        => $init_chance,
             'used'          => 0,
+            'paid_chance'   => $paid_chance,
+            'paid_used'     => 0,
+            'extra_chance'  => 0,
             'today_win_cnt' => 0,
             'dateline'      => $dateline
         );

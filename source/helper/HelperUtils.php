@@ -66,8 +66,8 @@ class HelperUtils
 	//导出csv end 不支持匿名函数，只能先这样了
     public static function export_csv_end()
     {
-        flush();
-        ob_flush();
+        @flush();
+        @ob_flush();
         echo PHP_EOL;//否则，文件内容乱码
         exit;//否则，带有php文件内容        
     }
@@ -154,7 +154,7 @@ class HelperUtils
 	}	
 
 	//头像
-	public static function avatar($uid, $size = 'middle', $update=true) 
+	public static function avatar($uid, $size = 'middle', $update=false) 
 	{
 		$sizes = array(
 			'big'    => 'w200h200',
@@ -518,6 +518,15 @@ class HelperUtils
 		return false;
 	}
 
+	public static function xss_bug($message){
+		if($message && is_string($message)){
+			$message = strip_tags($message) ;
+			$message = preg_replace('/\"|\'|\&lt\;|\&gt\;|\<|\>/iu', '', $message);
+			$message = strtr($message,array('ส'=>'','ฏ'=>'','&#3626'=>'','&#3599'=>'','ฏ๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎๎'=>''));
+			return $message;
+		}
+		return '';
+	}
 
 	//获取参数
 	public static function get_param($key, $default = null)
@@ -527,14 +536,16 @@ class HelperUtils
 
 	public static function get_pic_url($filepath, $type='app')
 	{
+		// $filepath = preg_replace('/^(http||https):/i', '', $filepath);
 		if(!$filepath){
 			return null;
 		}
-		if(self::check_url($filepath, $type)){
+		if(self::check_url($filepath)){
 			return $filepath;
 		}
 
 		$img_url = FILE_DOMAIN . ltrim($filepath, '/');
+		
 		return $img_url;
 	}
 
@@ -601,16 +612,14 @@ class HelperUtils
 		return $message;
 	}
 	
-	public static function dhtmlspecialchars($string, $flags = null, $replace_and=false) 
-	{
+	public static function dhtmlspecialchars($string, $flags = null) {
 		if(is_array($string)) {
 			foreach($string as $key => $val) {
-				$string[$key] = self::dhtmlspecialchars($val, $flags, $replace_and);
+				$string[$key] = self::dhtmlspecialchars($val, $flags);
 			}
 		} else {
 			if($flags === null) {
-				$string = $replace_and ? str_replace(array('&', '"', '<', '>'), array('&amp;', '&quot;', '&lt;', '&gt;'), $string) : str_replace(array('"', '<', '>'), array('&quot;', '&lt;', '&gt;'), $string);
-
+				$string = str_replace(array('&', '"', '<', '>'), array('&amp;', '&quot;', '&lt;', '&gt;'), $string);
 				if(strpos($string, '&amp;#') !== false) {
 					$string = preg_replace('/&amp;((#(\d{3,5}|x[a-fA-F0-9]{4}));)/', '&\\1', $string);
 				}
@@ -629,54 +638,6 @@ class HelperUtils
 		}
 		return $string;
 	}
-
-	// 过滤代码      & 不过滤成&amp;
-	public static function dhtmlspecialchars2($string, $flags = null) 
-	{
-		if(is_array($string)) {
-			foreach($string as $key => $val) {
-				$string[$key] = dhtmlspecialchars($val, $flags);
-			}
-		} else {
-			if($flags === null) {
-				$string = str_replace(array('"', '<', '>'), array('&quot;', '&lt;', '&gt;'), $string);
-				if(strpos($string, '&amp;#') !== false) {
-					$string = preg_replace('/&amp;((#(\d{3,5}|x[a-fA-F0-9]{4}));)/', '&\\1', $string);
-				}
-			} else {
-				if(PHP_VERSION < '5.4.0') {
-					$string = htmlspecialchars($string, $flags);
-				} else {
-					if(strtolower(CHARSET) == 'utf-8') {
-						$charset = 'UTF-8';
-					} else {
-						$charset = 'ISO-8859-1';
-					}
-					$string = htmlspecialchars($string, $flags, $charset);
-				}
-			}
-		}
-		return $string;
-	}
-
-	public static function remaintime($time) 
-	{
-		$days = intval( $time / 86400 );
-		$time -= $days * 86400;
-		$hours = intval( $time / 3600 );
-		$time -= $hours * 3600;
-		$minutes = intval( $time / 60 );
-		$time -= $minutes * 60;
-		$seconds = $time;
-		return array(
-			(int) $days,
-			(int) $hours,
-			(int) $minutes,
-			(int) $seconds
-		);
-	}
-
-
 
 	/**
 	 * 服务端发起https请求 get
@@ -781,6 +742,94 @@ class HelperUtils
 		curl_close($ch);
 		return $data;
 	}
+
+	/**
+	 * 读取excel文件的数据  还有很多类没用到  可以在这里修改完善
+	 */
+	public function read_excel($excel, $sheet=0, $beginRow=1, $beginColumn='A')
+	{
+		if(!file_exists($excel)){
+			return false;
+		}
+		$beginRow  = intval($beginRow);
+		$sheet = intval($sheet);
+		!preg_match('/^[A-Z]{1,2}$/u', $beginColumn) && $beginColumn = 'A';
+		$arr = array();
+		//引入第三方类库
+		require_once BASE_ROOT.'/source/sdk/phpexcel/PHPExcel.php';
+		$PHPExcel=new PHPExcel();  //创建PHPExcel对象，注意，不能少了\
+		require_once BASE_ROOT."/source/sdk/phpexcel/PHPExcel/Reader/Excel2007.php";
+		$PHPReader = new \PHPExcel_Reader_Excel2007();
+		$Shared_Date = new \PHPExcel_Shared_Date();  //表给日期格式化
+		$PHPExcel = $PHPReader->load($excel);  //载入文件
+		$currentSheet = $PHPExcel->getSheet($sheet);   //文件中第几个工作表
+		$allColumn = $currentSheet->getHighestColumn(); //获取总列数
+		$allRow = $currentSheet->getHighestRow();  //获取总行数
+		//循环获取表中的数据，$currentRow表示当前行，从哪行开始读取数据，索引值从1开始
+		for($currentRow=$beginRow;$currentRow<=$allRow;$currentRow++){
+			for($currentColumn=$beginColumn;$currentColumn<=$allColumn;$currentColumn++){//从哪列开始，A表示第一列
+				$address=$currentColumn.$currentRow;//数据坐标
+				$arr[$currentRow][$currentColumn]=$currentSheet->getCell($address)->getValue();//读取到的数据，保存到数组$arr中
+			}
+		}
+		return $arr;
+	}
+
+	/**
+	 * 生成加LOGO的二堆码
+	 */
+	public function qrcode($text,$logo=false,$mod='qrcode')
+	{
+		// if(!$text)	{
+		// 	$this->qr_tip = '文本信息不存在';
+		// 	return false;
+		// }
+		// if($logo){
+		// 	$file_logo = file_get_contents($logo);
+		// 	if (!$file_logo){
+		// 		$this->qr_tip = 'logo无法读取';
+		// 		return false;
+		// 	}
+		// }
+		// require_once BASE_ROOT.'/source/sdk/qrcode/qrcode.php';
+		// $qrcode = new QRcode();
+		// $filename = md5($text.$logo);
+		// if(empty($this->qr_path)){
+		// 	$this->qr_path = $this->set_qr_path($mod);
+		// }
+		// if(empty($this->qr_path)){
+		// 	$this->qr_tip = '路径不存在';
+		// 	return false;
+		// }
+		// $path = $this->qr_path.$filename.'.png';
+		// if (!file_exists($_G['setting']['attachdir'].$path)){
+		// 	$errorCorrectionLevel = 'L';
+		// 	$matrixPointSize = 10;
+
+		// 	$qrcode->png($text, $_G['setting']['attachdir'].$path, $errorCorrectionLevel, $matrixPointSize, 2);
+
+		// 	if ($logo&&$file_logo){
+		// 		$QR = imagecreatefromstring(file_get_contents($_G['setting']['attachdir'].$path));
+		// 		$logo = imagecreatefromstring($file_logo);
+		// 		$QR_width = imagesx($QR);
+		// 		$QR_height = imagesy($QR);
+		// 		$logo_width = imagesx($logo);
+		// 		$logo_height = imagesy($logo);
+		// 		$logo_qr_width = $QR_width / 5;
+		// 		$scale = $logo_width / $logo_qr_width;
+		// 		$logo_qr_height = $logo_height / $scale;
+		// 		$from_width = ($QR_width - $logo_qr_width) / 2;
+		// 		imagecopyresampled($QR, $logo, $from_width, $from_width, 0, 0, $logo_qr_width, $logo_qr_height, $logo_width, $logo_height);
+		// 		imagepng($QR,$_G['setting']['attachdir'].$path);
+		// 	}
+		// }
+		// if(file_exists($_G['setting']['attachdir'].$path)){
+		// 	$cc = file_get_contents($_G['setting']['attachdir'].$path);
+		// 	oss_post_object::filename_post( $cc, FILE_DOMAIN.$path);
+		// 	unlink($_G['setting']['attachdir'].$path);
+		// }
+		// return $path;
+	}	
 	/**
 	 * 服务器端发起http 请求  post 返回带header
 	 * @param unknown $url
@@ -839,5 +888,5 @@ class HelperUtils
 		curl_close($ch);
 		return $data;
 	}
-	
+
 }

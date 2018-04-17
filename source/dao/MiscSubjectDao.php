@@ -1,12 +1,9 @@
 <?php
-
-class MiscSubjectDao extends BaseDao
+class MiscSubjectDao extends BaseDao 
 {
-    public function __construct() 
-    {
-		$this->_table     = 'misc_subject';
-		$this->_pk        = 'key';
-		$this->_cache_ttl = 600;
+	public function __construct() {
+		$this->_table = 'misc_subject';
+		$this->_pk    = 'key';
 		parent::__construct();
-    }
+	}
 }
