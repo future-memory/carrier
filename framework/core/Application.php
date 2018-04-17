@@ -7,7 +7,6 @@
 class Application
 {
 	//from config
-	private $_base_path;
 	private $_view_path;
 	private $_runtime_path;
 	private $_components         = array();	
@@ -236,7 +235,7 @@ class Application
 
 	public function getBasePath()
 	{
-		return $this->_base_path;
+		return APP_ROOT;
 	}
 
 	public function getControllerPath()

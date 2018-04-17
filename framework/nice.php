@@ -66,7 +66,7 @@ class Nice
 			}else if(strpos($class, 'dao')!==false){
 				include(BASE_ROOT.'/source/dao/'.$className.'.php');
 			}else if(strpos($class, 'controller')!==false){
-				include(BASE_ROOT.'/controllers/'.$className.'.php');
+				include(APP_ROOT.'/controllers/'.$className.'.php');
 			}else if(strpos($class, 'helper')!==false){
 				include(BASE_ROOT.'/source/helper/'.$className.'.php');
 			}else if(strpos($class, 'widget')!==false){

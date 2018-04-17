@@ -131,6 +131,39 @@ class DataBase {
 		return self::query($sql, null);		
 	}
 
+	//通过唯一索引或主键批量更新
+	public function batch_update($table, $data)
+	{
+		if(empty($data)){
+			return false;
+		}
+
+		$sql     = '';
+		$cmd     = 'INSERT INTO';
+		$tbl     = self::table($table);
+		$columns = array_keys($data[0]);
+
+		$sql .= "$cmd $tbl (`".trim(implode('`,`', $columns), ',')."`) VALUES";
+
+		foreach($data as $d){
+			$sql .=  '(';
+			$con  = '';
+			foreach($columns as $column){
+				$sql .=  $con . self::quote($d[$column]);
+				$con  = ',';
+			}
+			$sql .= '),';
+		}
+		$sql = trim($sql, ',');
+
+		$update = '';
+		foreach ($columns as $column) {
+			$update .= ($update ? ',' : '').'`'.$column.'`=values(`'.$column.'`)';
+		}
+		$sql = $sql.' ON DUPLICATE KEY UPDATE '.$update;
+
+		return self::query($sql, null);		
+	}
 
 	public function update($table, $data, $condition, $unbuffered = false, $low_priority = false) 
 	{
