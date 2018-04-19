@@ -21,4 +21,9 @@ $_config['weapp'] = array(
 	'secret' => '489eff15603c9f7a27a29e56156e4426'
 );
 
+$config['founders'] = 'johz';
+
+$config['skip_actions'] = array('login', 'web_login', 'dologin', 'callback');
+
+
 return $_config;
