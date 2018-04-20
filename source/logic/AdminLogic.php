@@ -342,6 +342,8 @@ class AdminLogic extends Logic
         //成功之后清空login次数
         ObjectCreater::create('KVDataLogic')->delete($times_key);
 
+        return array('uid'=>$row['uid'], 'username'=>$row['username']);
+
     }
 
 	public function clear_cookies()

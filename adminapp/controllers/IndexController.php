@@ -59,7 +59,7 @@ class IndexController extends AdminController
         $keep_alive  = (int)$this->get_param('remember', 0);
         $client_time = (int)$this->get_param('client_time', 0);
 
-        $ret  = $this->logic->login($login_name, $passwd, $client_time, $keep_alive, $vcode);
+        $result['data'] = $this->logic->login($login_name, $passwd, $client_time, $keep_alive, $vcode);
 
         $this->render_json($result);
     }
