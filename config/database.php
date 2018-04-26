@@ -7,10 +7,10 @@ function get_db_config()
 	$_config['1']              = array();
 	$_config['1']['dbhost']    = '127.0.0.1';
 	$_config['1']['dbuser']    = 'root';
-	$_config['1']['dbpw']      = '';
+	$_config['1']['dbpw']      = 'root';
 	$_config['1']['dbcharset'] = 'utf8';
 	$_config['1']['pconnect']  = '0';
-	$_config['1']['dbname']    = 'diancan';
+	$_config['1']['dbname']    = 'carrier';
 	$_config['1']['tablepre']  = 'pre_';
 
     //db slave
@@ -18,10 +18,10 @@ function get_db_config()
     $_config['slave']['1']              = array();
     $_config['slave']['1']['dbhost']    = '127.0.0.1';
     $_config['slave']['1']['dbuser']    = 'root';
-    $_config['slave']['1']['dbpw']      = '';
+    $_config['slave']['1']['dbpw']      = 'root';
     $_config['slave']['1']['dbcharset'] = 'utf8';
     $_config['slave']['1']['pconnect']  = '0';
-    $_config['slave']['1']['dbname']    = 'diancan';
+    $_config['slave']['1']['dbname']    = 'carrier';
     $_config['slave']['1']['tablepre']  = 'pre_';    
 
 	return $_config;
