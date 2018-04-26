@@ -28,6 +28,8 @@ class BaseController
 			header('Access-Control-Allow-Origin: '.$url_info['host']);
 		}
 
+		header('Access-Control-Allow-Origin: *');
+
 		return true;
 	}
 
